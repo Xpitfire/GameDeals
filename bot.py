@@ -15,6 +15,9 @@ class GratisClient(discord.Client):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.reddit = None
+        self.manager = None
+        self.channel = None
         self.loop.create_task(self.get_deals())
 
     async def on_ready(self):
@@ -32,31 +35,34 @@ class GratisClient(discord.Client):
                            .add_field(name='!gd', value='Display bot information.', inline=False) \
                            .add_field(name='!gd-help', value='Display the commands menu.')
             await message.channel.send(embed=embed)
+        elif message.content == '!gd-deals':
+            await self.print_deals()
 
     async def on_error(event, *args, **kwargs):
         message = args[0]
         logging.warning(traceback.format_exc())
 
+    async def print_deals(self):
+        new_free_deals = self.manager.find_deals()
+        if new_free_deals:
+            embed = discord.Embed(
+                    title='New Deals!',
+                    description='Check out the free stuff on [/r/GameDeals](https://www.reddit.com/r/GameDeals/)',
+                    color=0x2df228)
+            for deal in new_free_deals:
+                embed.add_field(name=deal.title, value=deal.url, inline=False)
+            await self.__send_deals(embed)
+
     async def get_deals(self):
         await self.wait_until_ready()
 
-        reddit = RedditScraper()
-        manager = GameDealManager(reddit)
-        channel = self.get_channel(config.DISCORD_CHANNEL_ID)
+        self.reddit = RedditScraper()
+        self.manager = GameDealManager(self.reddit)
+        self.channel = self.get_channel(config.DISCORD_CHANNEL_ID)
 
         while not self.is_closed():
             if self.__is_6am_or_6pm():
-                new_free_deals = manager.find_deals()
-
-                if new_free_deals:
-                    embed = discord.Embed(
-                            title='Freebie Alert!',
-                            description='New deals with free stuff on [/r/GameDeals](https://www.reddit.com/r/GameDeals/)',
-                            color=0x2df228)
-                    for deal in new_free_deals:
-                        embed.add_field(name=deal.title, value=deal.url, inline=False)
-                    await self.__send_deals(embed)
-                    
+                await self.print_deals()
                 await asyncio.sleep(10 * 60 * 60 + 55 * 60) # Sleep for 10 hours and 55 minutes
             else:
                 await asyncio.sleep(1)
@@ -67,7 +73,7 @@ class GratisClient(discord.Client):
         return ((current_time.hour == 6) or (current_time.hour == 21)) and (current_time.minute == 20)
 
     async def __send_deals(self, embed):
-        channels_to_send_to = [c for c in self.get_all_channels() if c.type == discord.ChannelType.text and c.name == 'free-games']
+        channels_to_send_to = [c for c in self.get_all_channels() if c.type == discord.ChannelType.text and c.name == 'game-deals']
 
         for channel in channels_to_send_to:
             if channel.permissions_for(channel.guild.me).send_messages:
